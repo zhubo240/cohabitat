@@ -1,3 +1,230 @@
+/* Safe, dependency-free Markdown subset. Original source is always kept separately. */
+(function (global) {
+  'use strict';
+  const punctuation = /[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/;
+  function el(tag, cls, text) {
+    const node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+  function plain(parent, text, options) {
+    if (!text) return;
+    if (options && typeof options.linkText === 'function') {
+      const holder = el('span');
+      options.linkText(holder, text);
+      while (holder.firstChild) parent.appendChild(holder.firstChild);
+    } else parent.appendChild(document.createTextNode(text));
+  }
+  function safeURL(value) {
+    if (!value || /[\u0000-\u0020\u007f-\u009f]/.test(value) || /%0[0-9a-f]|%1[0-9a-f]|%7f/i.test(value)) return null;
+    if (/^#[^\s]*$/.test(value)) return value;
+    if (!/^https?:\/\//i.test(value)) return null;
+    try {
+      const url = new URL(value);
+      return /^(https?:)$/.test(url.protocol) && !url.username && !url.password && url.hostname ? url.href : null;
+    } catch (_) { return null; }
+  }
+  function closing(text, marker, from) {
+    let pos = from;
+    while ((pos = text.indexOf(marker, pos)) >= 0) {
+      let slashes = 0;
+      for (let j = pos - 1; j >= 0 && text[j] === '\\'; j--) slashes++;
+      if (!(slashes % 2)) return pos;
+      pos += marker.length;
+    }
+    return -1;
+  }
+  function linkAt(text, offset) {
+    const image = text.slice(offset, offset + 2) === '![';
+    const begin = offset + (image ? 2 : 1);
+    const end = closing(text, ']', begin);
+    if (end < 0 || text[end + 1] !== '(') return null;
+    let depth = 1, i;
+    for (i = end + 2; i < text.length; i++) {
+      if (text[i] === '\\') { i++; continue; }
+      if (text[i] === '(') depth++;
+      else if (text[i] === ')' && --depth === 0) break;
+    }
+    if (depth !== 0) return null;
+    return { image, label: text.slice(begin, end), destination: text.slice(end + 2, i), end: i + 1 };
+  }
+  function inline(parent, text, options, depth) {
+    if ((depth || 0) > 16) { plain(parent, text, options); return; }
+    let buffer = '';
+    const flush = () => { plain(parent, buffer, options); buffer = ''; };
+    for (let i = 0; i < text.length;) {
+      if (text[i] === '\\' && punctuation.test(text[i + 1] || '')) { buffer += text[i + 1]; i += 2; continue; }
+      if (text[i] === '`') {
+        const marker = text.slice(i).match(/^`+/)[0];
+        const end = closing(text, marker, i + marker.length);
+        if (end >= 0) { flush(); parent.appendChild(el('code', '', text.slice(i + marker.length, end))); i = end + marker.length; continue; }
+      }
+      if (text[i] === '[' || text.slice(i, i + 2) === '![') {
+        const link = linkAt(text, i);
+        if (link) {
+          flush();
+          if (link.image) {
+            const image = el('span', 'rich-text-image', link.label ? '[图片：' + link.label + ']' : '[图片]');
+            parent.appendChild(image);
+          } else {
+            const href = safeURL(link.destination);
+            if (href) {
+              const anchor = el('a'); anchor.setAttribute('href', href);
+              if (href[0] !== '#') { anchor.setAttribute('target', '_blank'); anchor.setAttribute('rel', 'noopener noreferrer'); }
+              inline(anchor, link.label, null, (depth || 0) + 1); parent.appendChild(anchor);
+            } else plain(parent, text.slice(i, link.end), options);
+          }
+          i = link.end; continue;
+        }
+      }
+      const marker = ['**', '__', '~~', '*', '_'].find(mark => text.slice(i, i + mark.length) === mark);
+      if (marker && !(marker.includes('_') && /[\p{L}\p{N}]/u.test(text[i - 1] || '') && /[\p{L}\p{N}]/u.test(text[i + marker.length] || ''))) {
+        const end = closing(text, marker, i + marker.length);
+        if (end > i + marker.length) {
+          flush(); const node = el(marker.length === 2 ? (marker === '~~' ? 'del' : 'strong') : 'em');
+          inline(node, text.slice(i + marker.length, end), options, (depth || 0) + 1); parent.appendChild(node); i = end + marker.length; continue;
+        }
+      }
+      buffer += text[i++];
+    }
+    flush();
+  }
+  function splitCells(line) {
+    let source = line.trim(), cells = [], cell = '', code = '', escaped = false;
+    if (source[0] === '|') source = source.slice(1);
+    for (let i = 0; i < source.length; i++) {
+      const ch = source[i];
+      if (escaped) { cell += '\\' + ch; escaped = false; continue; }
+      if (ch === '\\') { escaped = true; continue; }
+      if (ch === '`') {
+        const run = source.slice(i).match(/^`+/)[0];
+        if (!code) code = run; else if (code === run) code = '';
+        cell += run; i += run.length - 1; continue;
+      }
+      if (ch === '|' && !code) { cells.push(cell.trim()); cell = ''; } else cell += ch;
+    }
+    if (escaped) cell += '\\';
+    if (cell || !source.endsWith('|')) cells.push(cell.trim());
+    return cells;
+  }
+  function tableAlignment(line) {
+    const cells = splitCells(line);
+    return cells.length && cells.every(cell => /^:?-{3,}:?$/.test(cell)) ? cells.map(cell => cell.startsWith(':') && cell.endsWith(':') ? 'center' : cell.endsWith(':') ? 'right' : 'left') : null;
+  }
+  function highlight(code, source, language) {
+    if (!/^(js|javascript|ts|typescript|json|py|python|css|html|sh|bash|sql|java|c|cpp|go|rust)$/.test(language)) { code.textContent = source; return; }
+    const tokens = /("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\/\/[^\n]*|\/\*[\s\S]*?\*\/|#[^\n]*|\b(?:const|let|var|function|return|if|else|for|while|class|import|from|export|async|await|def|in|try|catch|except|raise|public|static|void|new|select|where|SELECT|FROM|WHERE)\b|\b(?:true|false|null|None|True|False)\b|\b\d+(?:\.\d+)?\b)/g;
+    let last = 0, match;
+    while ((match = tokens.exec(source))) {
+      if (match.index > last) code.appendChild(document.createTextNode(source.slice(last, match.index)));
+      const value = match[0];
+      const kind = /^["'`]/.test(value) ? 'string' : /^(\/\/|\/\*|#)/.test(value) ? 'comment' : /^\d/.test(value) ? 'number' : /^(true|false|null|None|True|False)$/.test(value) ? 'literal' : 'keyword';
+      code.appendChild(el('span', 'token-' + kind, value)); last = tokens.lastIndex;
+    }
+    if (last < source.length) code.appendChild(document.createTextNode(source.slice(last)));
+  }
+  async function copyTable(button, text) {
+    const done = ok => { button.textContent = ok ? '已复制 TSV' : '复制失败，请手动选择表格'; };
+    try {
+      if (!global.navigator || !global.navigator.clipboard || !global.navigator.clipboard.writeText) throw new Error('unavailable');
+      await global.navigator.clipboard.writeText(text); done(true); return;
+    } catch (_) { /* Local HTTP and denied clipboard permission retain the legacy fallback. */ }
+    const input = el('textarea'); input.value = text; input.className = 'rich-text-copy-buffer';
+    button.parentNode.appendChild(input); input.select();
+    try { done(Boolean(document.execCommand && document.execCommand('copy'))); } catch (_) { done(false); }
+    input.remove(); button.focus();
+  }
+  function listMatch(line) { return /^( *)([-+*]|\d+[.)])\s+(.*)$/.exec(line); }
+  function blocks(parent, lines, options, depth) {
+    if (depth > 32) { parent.appendChild(el('p', '', lines.join('\n'))); return; }
+    for (let i = 0; i < lines.length;) {
+      if (!lines[i].trim()) { i++; continue; }
+      const line = lines[i], fence = /^ {0,3}(`{3,}|~{3,})\s*([^\s]*)[^\n]*$/.exec(line);
+      if (fence) {
+        let end = i + 1;
+        const close = new RegExp('^ {0,3}' + fence[1][0] + '{' + fence[1].length + ',}\\s*$');
+        while (end < lines.length && !close.test(lines[end])) end++;
+        const pre = el('pre'), code = el('code'), language = fence[2].toLowerCase();
+        if (/^[a-z0-9_-]{1,30}$/.test(language)) code.className = 'language-' + language;
+        pre.setAttribute('tabindex', '0'); pre.setAttribute('aria-label', language ? language + ' 代码' : '代码');
+        highlight(code, lines.slice(i + 1, end).join('\n'), language); pre.appendChild(code); parent.appendChild(pre); i = Math.min(end + 1, lines.length); continue;
+      }
+      const heading = /^ {0,3}(#{1,6})\s+(.+?)\s*$/.exec(line);
+      if (heading) { const node = el('h' + heading[1].length); inline(node, heading[2].replace(/\s+#+\s*$/, ''), options); parent.appendChild(node); i++; continue; }
+      if (/^ {0,3}(?:(?:\*\s*){3,}|(?:-\s*){3,}|(?:_\s*){3,})$/.test(line)) { parent.appendChild(el('hr')); i++; continue; }
+      if (/^ {0,3}>/.test(line)) {
+        const quote = [], node = el('blockquote');
+        while (i < lines.length && /^ {0,3}>/.test(lines[i])) quote.push(lines[i++].replace(/^ {0,3}> ?/, ''));
+        blocks(node, quote, options, depth + 1); parent.appendChild(node); continue;
+      }
+      const item = listMatch(line);
+      if (item) {
+        const indent = item[1].length, ordered = /^\d/.test(item[2]), list = el(ordered ? 'ol' : 'ul');
+        if (ordered && parseInt(item[2], 10) !== 1) list.setAttribute('start', String(parseInt(item[2], 10)));
+        while (i < lines.length) {
+          const current = listMatch(lines[i]);
+          if (!current || current[1].length !== indent || /^\d/.test(current[2]) !== ordered) break;
+          const content = [current[3]], contentIndent = current[1].length + current[2].length + 1;
+          i++;
+          while (i < lines.length) {
+            if (!lines[i].trim()) {
+              if (i + 1 < lines.length && /^\s/.test(lines[i + 1]) && lines[i + 1].search(/\S/) > indent) { content.push(''); i++; continue; }
+              break;
+            }
+            const next = listMatch(lines[i]);
+            if ((next && next[1].length <= indent) || lines[i].search(/\S/) <= indent) break;
+            content.push(lines[i].slice(Math.min(contentIndent, lines[i].search(/\S/)))); i++;
+          }
+          const li = el('li'); blocks(li, content, options, depth + 1); list.appendChild(li);
+        }
+        parent.appendChild(list); continue;
+      }
+      const alignment = i + 1 < lines.length ? tableAlignment(lines[i + 1]) : null;
+      if (alignment && line.includes('|') && splitCells(line).length === alignment.length) {
+        const wrapper = el('div', 'rich-text-table'), button = el('button', 'rich-text-copy', '复制 TSV');
+        button.setAttribute('type', 'button'); button.setAttribute('aria-label', '复制表格为 TSV');
+        const scroll = el('div', 'rich-text-table-scroll'), table = el('table'), head = el('thead'), body = el('tbody'), rows = [];
+        scroll.setAttribute('tabindex', '0'); scroll.setAttribute('aria-label', '表格，可横向滚动');
+        const addRow = (cells, isHeader) => {
+          const tr = el('tr'), values = [];
+          alignment.forEach((align, col) => { const cell = el(isHeader ? 'th' : 'td', 'rich-text-align-' + align); if (isHeader) cell.setAttribute('scope', 'col'); inline(cell, cells[col] || '', options); values.push(cell.textContent.replace(/[\t\r\n]+/g, ' ')); tr.appendChild(cell); });
+          rows.push(values.join('\t')); (isHeader ? head : body).appendChild(tr);
+        };
+        addRow(splitCells(line), true); i += 2;
+        while (i < lines.length && lines[i].trim() && lines[i].includes('|')) {
+          const cells = splitCells(lines[i]);
+          if (cells.length !== alignment.length) break;
+          addRow(cells, false); i++;
+        }
+        button.addEventListener('click', () => copyTable(button, rows.join('\n')));
+        table.appendChild(head); table.appendChild(body); scroll.appendChild(table); wrapper.appendChild(button); wrapper.appendChild(scroll); parent.appendChild(wrapper); continue;
+      }
+      const paragraph = [line]; i++;
+      while (i < lines.length && lines[i].trim() && !/^ {0,3}(?:#{1,6}\s|>|`{3,}|~{3,}|(?:[-*_]\s*){3,}$)/.test(lines[i]) && !listMatch(lines[i]) && !(i + 1 < lines.length && lines[i].includes('|') && tableAlignment(lines[i + 1]))) paragraph.push(lines[i++]);
+      const p = el('p'); paragraph.forEach((part, index) => { if (index) p.appendChild(el('br')); inline(p, part, options); }); parent.appendChild(p);
+    }
+  }
+  function render(container, text, options) {
+    const raw = text == null ? '' : String(text);
+    container.dataset.rawText = raw;
+    container.classList.add('rich-text');
+    while (container.firstChild) container.removeChild(container.firstChild);
+    blocks(container, raw.split(/\r\n|\n|\r/), options || {}, 0);
+    return container;
+  }
+  global.RichText = Object.freeze({ render });
+})(typeof window !== 'undefined' ? window : globalThis);
+
+"use strict";
+const commentFormatting = new WeakMap();
+function renderCommentText(container, text, mentions, actors) {
+  const signature = JSON.stringify([text, mentions, actors.map(({id,name,aliases}) => [id,name,aliases])]);
+  if (commentFormatting.get(container) === signature) return;
+  commentFormatting.set(container, signature);
+  renderRichText(container, text, mentions, actors);
+}
+
 "use strict";
 (() => {
   const $ = id => document.getElementById(id);
@@ -46,6 +273,11 @@
   let chatQuery = "", chatKind = "", activityQuery = "", activityType = "", activityAuthor = "";
   const normalizedText = value => text(value).normalize("NFKC").toLocaleLowerCase();
   const activityLabel = type => ({topic:"发布主题",comment:"论坛评论",message:"聊天消息",chat:"聊天",research:"探索",exploration:"探索",reflection:"自述",autonomy:"自主行动",action:"行动",attention:"关注更新"}[type] || text(type) || "动态");
+  function richBody(value, className = "body") {
+    const body=element("div", null, className);
+    RichText.render(body, text(value));
+    return body;
+  }
   function forumParams() {
     const params = new URLSearchParams();
     if (guide !== "latest") params.set("view", guide);
@@ -276,7 +508,7 @@
     const head = element("div", null, "topic-header");
     const topicMeta = element("p", "发表于 " + when(topic.created_at || topic.at), "meta");
     if (topic.edited_at) topicMeta.append(element("span", " · 编辑于 " + when(topic.edited_at)));
-    head.append(element("span", classes.get(topic.category)?.name || "未分类", "category-tag"), element("h1", topic.title), personLink(topic.author), topicMeta, element("p", topic.body, "body"));
+    head.append(element("span", classes.get(topic.category)?.name || "未分类", "category-tag"), element("h1", topic.title), personLink(topic.author), topicMeta, richBody(topic.body));
     card.append(head);
     const comments = list(topic.comments).filter(c => c && typeof c.id === "string");
     card.append(element("h2", `公开评论 · ${comments.length}`));
@@ -301,7 +533,7 @@
       if (c.edited_at) meta.append(element("span", "编辑于 " + when(c.edited_at), "meta"));
       item.append(meta);
       if (byId.has(c.parent)) item.append(element("p", `回复 ${people.get(byId.get(c.parent).author)?.name || "共居地成员"}`, "reply-label"));
-      item.append(element("p", c.body, "body")); ul.append(item);
+      item.append(richBody(c.body)); ul.append(item);
       if (depth < 64) for (const child of children.get(c.id) || []) appendComment(child, depth+1);
     }
     for (const c of children.get(null) || []) appendComment(c,0);
@@ -384,7 +616,7 @@
           const reply=element("p",null,"message-reply");
           reply.append(element("span",`回复 ${people.get(parent.author)?.name || "共居地成员"}：`),element("span",parent.body));item.append(reply);
         }
-        item.append(element("p",message.body,"body message-body"));timeline.append(item);
+        item.append(richBody(message.body,"body message-body"));timeline.append(item);
       }
       if (!found.length) timeline.append(element("li",messages.length?"没有匹配的消息。":"此会话没有可浏览消息。","empty"));
     }
