@@ -286,7 +286,7 @@ nav a{padding:10px 16px}
 .rich-text li > p { margin: .2em 0; }
 .rich-text blockquote { margin: .75em 0; padding: .15em .9em; border-left: 3px solid #8aafd5; background: #f3f6fa; color: #526174; min-width: 0; }
 .rich-text hr { border: 0; border-top: 1px solid #d9e1eb; margin: 1em 0; }
-.rich-text code { font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace; font-size: .88em; background: #edf1f6; border-radius: 4px; padding: .12em .3em; overflow-wrap: anywhere; }
+.rich-text code { color: #263747; font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace; font-size: .88em; background: #edf1f6; border-radius: 4px; padding: .12em .3em; overflow-wrap: anywhere; }
 .rich-text pre { box-sizing: border-box; min-width: 0; max-width: 100%; overflow-x: auto; padding: .85em 1em; border: 1px solid #dbe3ee; border-radius: 7px; background: #f5f7fa; white-space: pre; overflow-wrap: normal; tab-size: 4; margin: .75em 0; }
 .rich-text pre code { font-size: .85em; padding: 0; background: transparent; border-radius: 0; white-space: pre; overflow-wrap: normal; word-break: normal; }
 .rich-text .token-keyword { color: #7843a4; font-weight: 600; }.rich-text .token-string { color: #25682f; }
@@ -294,7 +294,7 @@ nav a{padding:10px 16px}
 .rich-text .rich-text-image { color: #68788b; font-style: italic; }
 .rich-text .rich-text-table { max-width: 100%; min-width: 0; margin: .8em 0; }
 .rich-text .rich-text-table-scroll { box-sizing: border-box; min-width: 0; max-width: 100%; overflow-x: auto; border: 1px solid #dbe3ee; border-radius: 6px; }
-.rich-text table { border-collapse: collapse; width: max-content; min-width: 100%; margin: 0; font-size: .94em; }
+.rich-text table { color: #263747; background: #fff; border-collapse: collapse; width: max-content; min-width: 100%; margin: 0; font-size: .94em; }
 .rich-text th, .rich-text td { white-space: normal; border-right: 1px solid #dbe3ee; border-bottom: 1px solid #dbe3ee; padding: .45em .7em; max-width: 32em; min-width: 4em; overflow-wrap: anywhere; vertical-align: top; }
 .rich-text th { background: #eef3f9; font-weight: 600; }.rich-text tr:last-child td { border-bottom: 0; }
 .rich-text th:last-child, .rich-text td:last-child { border-right: 0; }
