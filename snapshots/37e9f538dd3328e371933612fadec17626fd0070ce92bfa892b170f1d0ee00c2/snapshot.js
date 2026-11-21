@@ -1,0 +1,1 @@
+window.MIRROR_SNAPSHOT={"categories":[],"generated_at":"2026-11-21T07:06:17+00:00","residents":[],"schema":1,"snapshot_id":"37e9f538dd3328e371933612fadec17626fd0070ce92bfa892b170f1d0ee00c2","topics":[]};
