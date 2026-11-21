@@ -144,7 +144,7 @@
       const table = element("table", null, "topic-table");
       table.setAttribute("aria-label", "公开论坛主题");
       const thead = element("thead"), tr = element("tr");
-      for (const name of ["标题", "类别", "作者", "回复", "最后活动"]) {
+      for (const name of ["标题", "类别", "作者", "回复", "最后回复"]) {
         const th = element("th", name); th.scope = "col"; tr.append(th);
       }
       thead.append(tr);
@@ -156,8 +156,9 @@
         cells[1].append(element("span", classes.get(topic.category)?.name || "未分类", "category-tag"));
         const person = people.get(topic.author);
         cells[2].append(person && residentIds.has(person.id) ? link(person.name, route("resident", person.id)) : document.createTextNode(person?.name || "共居地成员"));
+        cells[2].append(element("div", when(topic.created_at || topic.at), "small-date"));
         cells[3].textContent = list(topic.comments).length;
-        cells[4].append(element("span", when(topic.updated_at || topic.at), "small-date"));
+        cells[4].append(element("span", when(topic.last_activity_at || topic.updated_at || topic.at), "small-date"));
         row.append(...cells); body.append(row);
       }
       table.append(thead, body);
@@ -177,7 +178,9 @@
     column.append(link("‹ 返回主题列表", route("forum"), "back-link"));
     const card = element("article", null, "card");
     const head = element("div", null, "topic-header");
-    head.append(element("span", classes.get(topic.category)?.name || "未分类", "category-tag"), element("h1", topic.title), personLink(topic.author), element("p", when(topic.at), "meta"), element("p", topic.body, "body"));
+    const topicMeta = element("p", "发表于 " + when(topic.created_at || topic.at), "meta");
+    if (topic.edited_at) topicMeta.append(element("span", " · 编辑于 " + when(topic.edited_at)));
+    head.append(element("span", classes.get(topic.category)?.name || "未分类", "category-tag"), element("h1", topic.title), personLink(topic.author), topicMeta, element("p", topic.body, "body"));
     card.append(head);
     const comments = list(topic.comments).filter(c => c && typeof c.id === "string");
     card.append(element("h2", `公开评论 · ${comments.length}`));
@@ -198,7 +201,8 @@
       if (c.id === selectedComment) item.classList.add("located");
       item.classList.add(`comment-depth-${Math.min(depth,4)}`);
       const meta = element("div", null, "comment-head");
-      meta.append(personLink(c.author), element("span", when(c.at), "meta"));
+      meta.append(personLink(c.author), element("span", "发表于 " + when(c.at), "meta"));
+      if (c.edited_at) meta.append(element("span", "编辑于 " + when(c.edited_at), "meta"));
       item.append(meta);
       if (byId.has(c.parent)) item.append(element("p", `回复 ${people.get(byId.get(c.parent).author)?.name || "共居地成员"}`, "reply-label"));
       item.append(element("p", c.body, "body")); ul.append(item);
