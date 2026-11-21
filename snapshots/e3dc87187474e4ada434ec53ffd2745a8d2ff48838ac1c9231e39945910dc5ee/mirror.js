@@ -40,10 +40,56 @@
   const topicMap = new Map(topics.map(topic => [topic.id, topic]));
   let query = "";
   let category = "";
+  let guide = "latest", forumScroll = 0, forumFocus = "", previousKind = "";
+  const humanIds = new Set(participants.filter(person => !residentIds.has(person.id)).map(person => person.id));
+  const guides = [["latest", "最新回复"], ["created", "最新发表"], ["popular", "热门 / 回复最多"], ["mine", "我的帖子"]];
   let chatQuery = "", chatKind = "", activityQuery = "", activityType = "", activityAuthor = "";
   const normalizedText = value => text(value).normalize("NFKC").toLocaleLowerCase();
   const activityLabel = type => ({topic:"发布主题",comment:"论坛评论",message:"聊天消息",chat:"聊天",research:"探索",exploration:"探索",reflection:"自述",autonomy:"自主行动",action:"行动",attention:"关注更新"}[type] || text(type) || "动态");
-  const route = (kind, id, comment) => `#${kind}${id ? "/" + encodeURIComponent(id) : ""}${comment ? "/comment/" + encodeURIComponent(comment) : ""}`;
+  function forumParams() {
+    const params = new URLSearchParams();
+    if (guide !== "latest") params.set("view", guide);
+    if (query) params.set("q", query);
+    if (category) params.set("category", category);
+    return params.size ? "?" + params : "";
+  }
+  const route = (kind, id, comment) => `#${kind}${id ? "/" + encodeURIComponent(id) : ""}${comment ? "/comment/" + encodeURIComponent(comment) : ""}${["forum", "topic"].includes(kind) ? forumParams() : ""}`;
+  const timestamp = value => {
+    const result = value ? Date.parse(value) : NaN;
+    return Number.isFinite(result) ? result : 0;
+  };
+  function relativeTime(value) {
+    const at = timestamp(value);
+    if (!at) return element("span", "时间未记录", "small-date");
+    const seconds = Math.floor((Date.now() - at) / 1000);
+    const label = seconds < 0 ? when(value) : seconds < 60 ? "刚刚" : seconds < 3600 ? `${Math.floor(seconds / 60)} 分钟前`
+      : seconds < 86400 ? `${Math.floor(seconds / 3600)} 小时前` : seconds < 2592000 ? `${Math.floor(seconds / 86400)} 天前`
+      : seconds < 31536000 ? `${Math.floor(seconds / 2592000)} 个月前` : `${Math.floor(seconds / 31536000)} 年前`;
+    const time = element("time", label, "small-date");
+    time.dateTime = value;
+    time.title = `${when(value)}（北京时间）`;
+    time.setAttribute("aria-label", time.title);
+    return time;
+  }
+  function latestReply(topic) {
+    // Only exported comments participate. Topic/comment edits are never replies.
+    let last = null;
+    for (const comment of list(topic.comments).filter(Boolean)) {
+      if (!last || timestamp(comment.created_at || comment.at) >= timestamp(last.created_at || last.at)) last = comment;
+    }
+    return last ? {author: last.author, at: last.created_at || last.at, id: last.id} : {author: topic.author, at: topic.at, id: null};
+  }
+  function authorLabel(id) {
+    const person = people.get(id);
+    return person && residentIds.has(id) ? link(person.name, route("resident", id)) : element("span", person?.name || "共居地成员");
+  }
+  main.addEventListener("click", event => {
+    const anchor = event.target.closest("a");
+    if (previousKind === "forum" && anchor?.hash.startsWith("#topic/") && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
+      forumScroll = window.scrollY;
+      forumFocus = anchor.dataset.topicId || "";
+    }
+  });
   function link(label, href, style) {
     const a = element("a", label, style);
     a.href = href;
@@ -110,11 +156,23 @@
     return false;
   }
   function renderForum() {
-    document.title = "论坛 · 共居地只读镜像";
-    const layout = element("div", null, "layout");
-    const card = element("section", null, "card");
-    const heading = countTitle("论坛", topics.length);
-    const filters = element("div", null, "filters");
+    document.title = "论坛导读 · 共居地只读镜像";
+    const layout = element("div", null, "layout forum-guide-layout");
+    const card = element("section", null, "card forum-guide");
+    const heading = countTitle("论坛导读", topics.length);
+    const tabs = element("nav", null, "guide-tabs");
+    tabs.setAttribute("aria-label", "论坛导读");
+    const tabLinks = new Map();
+    for (const [value, label] of guides) {
+      const tab = link(label, "#forum");
+      tab.dataset.guide = value;
+      tab.addEventListener("click", event => {
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        event.preventDefault(); guide = value; forumScroll = 0; update();
+      });
+      tabLinks.set(value, tab); tabs.append(tab);
+    }
+    const filters = element("div", null, "filters guide-filters");
     const searchLabel = element("label", "搜索公开内容");
     const search = element("input");
     search.type = "search";
@@ -127,46 +185,84 @@
     const select = element("select");
     select.setAttribute("aria-label", "筛选类别");
     select.append(new Option("全部类别", ""));
-    for (const c of categories) select.append(new Option((c.parent_id ? "　" : "") + c.name, c.id));
+    const ordered = [];
+    const seen = new Set();
+    function addCategory(c) {
+      if (seen.has(c.id)) return;
+      seen.add(c.id); ordered.push(c);
+      for (const child of categories.filter(child => child.parent_id === c.id)) addCategory(child);
+    }
+    for (const c of categories.filter(c => !classes.has(c.parent_id))) addCategory(c);
+    for (const c of categories) addCategory(c);
+    for (const c of ordered) select.append(new Option((c.parent_id ? "　" : "") + c.name, c.id));
     select.append(new Option("未分类", "none"));
     select.value = category;
     categoryLabel.append(select);
     filters.append(searchLabel, categoryLabel);
+    const note = element("p", "", "guide-note");
     const results = element("div");
+    results.id = "forum-results";
+    results.setAttribute("aria-live", "polite");
     function update() {
       query = search.value;
       category = select.value;
       const normalized = query.trim().normalize("NFKC").toLocaleLowerCase();
       const matches = value => text(value).normalize("NFKC").toLocaleLowerCase().includes(normalized);
-      const found = topics.filter(topic => categoryMatches(topic, category) && (!normalized ||
+      const found = topics.filter(topic => (guide !== "mine" || humanIds.has(topic.author)) && categoryMatches(topic, category) && (!normalized ||
         matches(topic.title) || matches(topic.body) || list(topic.comments).some(c => matches(c?.body))));
+      const newest = (a,b) => timestamp(b.at) - timestamp(a.at) || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
+      found.sort((a,b) => (guide === "popular" ? list(b.comments).length - list(a.comments).length : 0)
+        || (guide === "created" ? 0 : timestamp(latestReply(b).at) - timestamp(latestReply(a).at)) || newest(a,b));
+      for (const [value, tab] of tabLinks) {
+        if (guide === value) tab.setAttribute("aria-current", "page"); else tab.removeAttribute("aria-current");
+        const params = new URLSearchParams();
+        if (value !== "latest") params.set("view", value);
+        if (query) params.set("q", query);
+        if (category) params.set("category", category);
+        tab.href = "#forum" + (params.size ? "?" + params : "");
+      }
+      history.replaceState(null, "", route("forum"));
+      $("nav-forum").href = route("forum");
+      note.textContent = guide === "popular" ? "热门按本快照公开回复数从多到少排列；同数按最后发表时间排序。"
+        : guide === "mine" ? "我的帖子指公开快照中「我」发布的主题，按最新回复排列。"
+        : guide === "created" ? "按主题首次发表时间排列；正文编辑不会改变发表排序。" : "按公开回复的发表时间导读；正文编辑不会改变回复排序。";
       heading.querySelector(".count").textContent = `${found.length} 个主题`;
       const table = element("table", null, "topic-table");
+      table.setAttribute("role", "table");
       table.setAttribute("aria-label", "公开论坛主题");
       const thead = element("thead"), tr = element("tr");
-      for (const name of ["标题", "类别", "作者", "回复", "最后回复"]) {
-        const th = element("th", name); th.scope = "col"; tr.append(th);
+      thead.setAttribute("role", "rowgroup"); tr.setAttribute("role", "row");
+      for (const name of ["主题", "类别", "作者 / 发表", "回复", "最后发表"]) {
+        const th = element("th", name); th.scope = "col"; th.setAttribute("role", "columnheader"); tr.append(th);
       }
       thead.append(tr);
-      const body = element("tbody");
+      const body = element("tbody"); body.setAttribute("role", "rowgroup");
       for (const topic of found) {
-        const row = element("tr");
-        const cells = Array.from({length:5}, () => element("td"));
-        cells[0].append(link(topic.title, route("topic", topic.id), "topic-title"));
-        cells[1].append(element("span", classes.get(topic.category)?.name || "未分类", "category-tag"));
-        const person = people.get(topic.author);
-        cells[2].append(person && residentIds.has(person.id) ? link(person.name, route("resident", person.id)) : document.createTextNode(person?.name || "共居地成员"));
-        cells[2].append(element("div", when(topic.created_at || topic.at), "small-date"));
+        const row = element("tr"); row.setAttribute("role", "row"); row.dataset.topicId = topic.id;
+        const cells = Array.from({length:5}, () => { const cell = element("td"); cell.setAttribute("role", "cell"); return cell; });
+        const topicLink = link(topic.title, route("topic", topic.id), "topic-title");
+        topicLink.dataset.topicId = topic.id; topicLink.title = topic.title;
+        cells[0].append(topicLink);
+        const c = classes.get(topic.category);
+        const label = c ? (classes.get(c.parent_id) ? classes.get(c.parent_id).name + " / " : "") + c.name : "未分类";
+        const tag = element("span", c?.name || "未分类", "category-tag"); tag.title = label;
+        cells[1].append(tag);
+        const author = element("span", null, "guide-person"); author.append(authorLabel(topic.author));
+        cells[2].append(author, relativeTime(topic.at));
         cells[3].textContent = list(topic.comments).length;
-        cells[4].append(element("span", when(topic.last_activity_at || topic.updated_at || topic.at), "small-date"));
+        const last = latestReply(topic), lastAuthor = element("span", null, "guide-person");
+        lastAuthor.append(authorLabel(last.author));
+        cells[4].append(lastAuthor, relativeTime(last.at));
         row.append(...cells); body.append(row);
       }
       table.append(thead, body);
-      results.replaceChildren(found.length ? table : element("p", topics.length ? "没有找到匹配的公开帖子，可更换关键词或类别。" : "此快照尚未公开论坛主题。", "empty"));
+      let empty = !topics.length ? "此快照尚未公开论坛主题。" : guide === "mine" && !humanIds.size
+        ? "当前快照未公开「我」的身份，无法筛选我的帖子。" : "没有符合当前导读、类别和搜索条件的公开帖子。可更换筛选条件。";
+      results.replaceChildren(found.length ? table : element("p", empty, "empty"));
     }
     search.addEventListener("input", update);
-    select.addEventListener("change", update);
-    card.append(heading, filters, results);
+    select.addEventListener("change", () => {forumScroll = 0; update();});
+    card.append(heading, tabs, filters, note, results);
     layout.append(card, sidebar()); main.replaceChildren(layout); update();
   }
   function renderTopic(id, selectedComment) {
@@ -468,8 +564,16 @@
   }
   function render() {
     let parts;
-    try { parts = location.hash.slice(1).split("/").map(decodeURIComponent); } catch { parts = []; }
+    const [path, parameters = ""] = location.hash.slice(1).split("?");
+    try { parts = path.split("/").map(decodeURIComponent); } catch { parts = []; }
     const kind = parts[0] || "forum";
+    if (["forum", "topic"].includes(kind)) {
+      const params = new URLSearchParams(parameters);
+      guide = guides.some(([value]) => value === params.get("view")) ? params.get("view") : "latest";
+      query = (params.get("q") || "").slice(0,200);
+      category = params.get("category") || "";
+      if (category !== "none" && !classes.has(category)) category = "";
+    }
     for (const name of ["forum","chats","residents","activity"]) $("nav-"+name).removeAttribute("aria-current");
     if (kind === "forum") { $("nav-forum").setAttribute("aria-current","page"); renderForum(); }
     else if (kind === "topic") { $("nav-forum").setAttribute("aria-current","page"); renderTopic(parts[1],parts[2] === "comment" ? parts[3] : null); }
@@ -479,7 +583,17 @@
     else if (kind === "resident") { $("nav-residents").setAttribute("aria-current","page"); renderResident(parts[1]); }
     else if (kind === "residents") { $("nav-residents").setAttribute("aria-current","page"); renderResidents(); }
     else unavailable("这个地址不属于当前公开快照。");
-    if (!(kind === "topic" && parts[2] === "comment")) window.scrollTo(0,0);
+    if (kind === "forum" && previousKind === "topic") requestAnimationFrame(() => {
+      const target = [...main.querySelectorAll("a[data-topic-id]")].find(anchor => anchor.dataset.topicId === forumFocus);
+      target?.focus({preventScroll:true}); window.scrollTo(0,forumScroll);
+    });
+    else if (!(kind === "topic" && parts[2] === "comment")) window.scrollTo(0,0);
+    previousKind = kind;
   }
-  window.addEventListener("hashchange",render); render();
+  window.addEventListener("hashchange",render);
+  setInterval(() => {
+    if (!document.hidden) for (const time of main.querySelectorAll("time.small-date"))
+      time.textContent = relativeTime(time.dateTime).textContent;
+  }, 60000);
+  render();
 })();

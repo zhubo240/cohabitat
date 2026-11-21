@@ -203,3 +203,66 @@ nav a{padding:10px 16px}
 .reflection-select select{max-width:100%;width:100%}
 .reflection-content .body{font-size:14px;margin:6px 0 18px}
 .reflection-content h3{font-size:14px;margin-bottom:6px}
+
+/* The forum guide keeps metadata quiet and gives the topic list the full width. */
+.forum-guide-layout{display:block}
+.forum-guide{padding:14px 16px;border-radius:5px}
+.forum-guide .section-heading{margin-bottom:8px}
+.forum-guide h1{font-size:19px}
+.guide-tabs{display:flex;flex-wrap:wrap;gap:0;border-bottom:1px solid var(--line);margin-bottom:10px}
+.guide-tabs a{font-size:13px;padding:7px 13px;border-bottom:2px solid transparent;color:#5e6d7c;font-weight:500}
+.guide-tabs a[aria-current=page]{color:#075acb;border-color:#075acb;background:#f5f8fc;font-weight:650}
+.guide-filters{grid-template-columns:minmax(0,1fr) minmax(160px,230px);gap:12px;margin-bottom:6px}
+.guide-filters label{gap:3px;font-size:11px}
+.guide-filters input,.guide-filters select{padding:6px 9px;border-radius:4px;font-size:13px;height:34px}
+.guide-note{color:var(--muted);font-size:11px;margin:6px 0 8px}
+.forum-guide .topic-table th{padding:7px 8px;font-size:11px;background:#f7f8fa}
+.forum-guide .topic-table td{padding:7px 8px;vertical-align:middle;font-size:12px;border-bottom:1px solid #edf0f4}
+.forum-guide .topic-table th:first-child{width:54%}
+.forum-guide .topic-table th:nth-child(2){width:12%}
+.forum-guide .topic-table th:nth-child(3){width:13%;display:table-cell}
+.forum-guide .topic-table td:nth-child(3){display:table-cell}
+.forum-guide .topic-table th:nth-child(4){width:5%;text-align:center}
+.forum-guide .topic-table td:nth-child(4){text-align:center;color:var(--muted)}
+.forum-guide .topic-table th:last-child{width:16%}
+.forum-guide .topic-title{display:block;font-size:14px;font-weight:550;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#193f6b;line-height:1.5}
+.forum-guide .category-tag{padding:0;background:none;border-radius:0;font-size:11px;line-height:1.4;max-width:100%;color:#74808d}
+.guide-person{display:block;color:#687380;font-size:12px;line-height:1.5}
+.guide-person a{color:inherit}
+.forum-guide .small-date{display:block;font-size:10px;line-height:1.4;color:#85909b}
+.forum-guide-layout>aside{margin-top:14px;padding:12px 16px;border-radius:5px}
+.forum-guide-layout>aside h2{font-size:13px;margin:0 0 9px;color:var(--muted);font-weight:500}
+.forum-guide-layout .resident-list{display:flex;flex-wrap:wrap;gap:12px 24px}
+.forum-guide-layout .resident-list .avatar{width:28px;height:28px;font-size:12px}
+.forum-guide-layout .resident-list .person-info{font-size:12px}
+@media(min-width:651px) and (max-width:1000px){
+.forum-guide .topic-table th:first-child{width:46%}
+.forum-guide .topic-table th:nth-child(2){width:13%}
+.forum-guide .topic-table th:nth-child(3){width:15%}
+.forum-guide .topic-table th:nth-child(4){width:6%}
+.forum-guide .topic-table th:last-child{width:20%}
+}
+@media(max-width:650px){
+.forum-guide{padding:10px 11px;border-radius:4px}
+.forum-guide .section-heading{align-items:center}
+.forum-guide h1{font-size:18px}
+.guide-tabs{justify-content:flex-start;gap:0;margin-bottom:9px}
+.guide-tabs a{padding:7px 8px;font-size:12px}
+.guide-filters{grid-template-columns:minmax(0,1fr) minmax(112px,38%);gap:8px}
+.guide-note{font-size:10px}
+.forum-guide .topic-table,.forum-guide .topic-table tbody{display:block;width:100%}
+.forum-guide .topic-table tr{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;padding:9px 0;border-bottom:1px solid #edf0f4}
+.forum-guide .topic-table td{display:block;padding:0;border:0;min-width:0;font-size:11px;width:auto;max-width:none}
+.forum-guide .topic-table td:first-child{grid-column:1/-1;grid-row:1}
+.forum-guide .topic-title{white-space:normal;overflow-wrap:anywhere;font-size:14px;line-height:1.5}
+.forum-guide .topic-table td:nth-child(2){grid-column:1;grid-row:2;max-width:none}
+.forum-guide .topic-table td:nth-child(3){display:block;grid-column:1;grid-row:3;font-size:10px;color:var(--muted)}
+.forum-guide .topic-table td:nth-child(4){grid-column:2;grid-row:2;text-align:right}
+.forum-guide .topic-table td:last-child{grid-column:2;grid-row:3;font-size:10px;text-align:right;color:var(--muted)}
+.forum-guide .topic-table td:nth-child(3)::before{content:'作者 ';color:#8a96a2}
+.forum-guide .topic-table td:last-child::before{content:'最后 ';color:#8a96a2}
+.forum-guide .guide-person,.forum-guide .small-date{display:inline;font-size:10px}
+.forum-guide .guide-person{margin-right:5px}
+.forum-guide .category-tag{font-size:10px}
+.forum-guide-layout .resident-list{gap:10px 18px}
+}
