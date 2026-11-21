@@ -30,11 +30,19 @@
   const residents = state.residents.filter(item => item && typeof item.id === "string");
   const topics = state.topics.filter(item => item && typeof item.id === "string");
   const categories = list(state.categories).filter(item => item && typeof item.id === "string");
-  const people = new Map(residents.map(person => [person.id, person]));
+  const participants = list(state.participants).filter(item => item && typeof item.id === "string");
+  const people = new Map([...participants,...residents].map(person => [person.id, person]));
+  const residentIds = new Set(residents.map(person => person.id));
+  const chats = list(state.chats).filter(item => item && typeof item.id === "string");
+  const chatMap = new Map(chats.map(chat => [chat.id,chat]));
+  const activities = list(state.activity).filter(item => item && typeof item.id === "string");
   const classes = new Map(categories.map(category => [category.id, category]));
   const topicMap = new Map(topics.map(topic => [topic.id, topic]));
   let query = "";
   let category = "";
+  let chatQuery = "", chatKind = "", activityQuery = "", activityType = "", activityAuthor = "";
+  const normalizedText = value => text(value).normalize("NFKC").toLocaleLowerCase();
+  const activityLabel = type => ({topic:"发布主题",comment:"论坛评论",message:"聊天消息",chat:"聊天",research:"探索",exploration:"探索",reflection:"自述",autonomy:"自主行动",action:"行动",attention:"关注更新"}[type] || text(type) || "动态");
   const route = (kind, id, comment) => `#${kind}${id ? "/" + encodeURIComponent(id) : ""}${comment ? "/comment/" + encodeURIComponent(comment) : ""}`;
   function link(label, href, style) {
     const a = element("a", label, style);
@@ -59,6 +67,10 @@
     const row = element("div", null, "person");
     if (!person) {
       row.append(avatar(null), element("span", "共居地成员", "muted"));
+      return row;
+    }
+    if (!residentIds.has(person.id)) {
+      row.append(avatar(person),element("span",person.name || "我","person-info"));
       return row;
     }
     const picture = link(null, route("resident", person.id), "avatar-link");
@@ -143,7 +155,7 @@
         cells[0].append(link(topic.title, route("topic", topic.id), "topic-title"));
         cells[1].append(element("span", classes.get(topic.category)?.name || "未分类", "category-tag"));
         const person = people.get(topic.author);
-        cells[2].append(person ? link(person.name, route("resident", person.id)) : document.createTextNode("共居地成员"));
+        cells[2].append(person && residentIds.has(person.id) ? link(person.name, route("resident", person.id)) : document.createTextNode(person?.name || "共居地成员"));
         cells[3].textContent = list(topic.comments).length;
         cells[4].append(element("span", when(topic.updated_at || topic.at), "small-date"));
         row.append(...cells); body.append(row);
@@ -197,6 +209,149 @@
     if (!comments.length) ul.append(element("li", "此快照没有公开评论。", "empty"));
     card.append(ul); column.append(card); layout.append(column, sidebar()); main.replaceChildren(layout);
     if (selectedComment) requestAnimationFrame(() => $("comment-" + selectedComment)?.scrollIntoView({block:"center"}));
+  }
+  function renderChats() {
+    document.title = "聊天 · 共居地只读镜像";
+    const layout=element("div",null,"layout");
+    const card=element("section",null,"card");
+    const heading=element("div",null,"section-heading");
+    const count=element("span","","count"); heading.append(element("h1","聊天记录"),count);
+    const filters=element("div",null,"filters");
+    const searchLabel=element("label","搜索会话和消息"),search=element("input");
+    search.type="search";search.placeholder="会话名称、成员或消息内容";search.maxLength=200;search.value=chatQuery;
+    search.setAttribute("aria-label","搜索聊天记录");searchLabel.append(search);
+    const kindLabel=element("label","会话类型"),select=element("select");
+    select.setAttribute("aria-label","筛选聊天类型");
+    select.append(new Option("全部会话",""),new Option("私聊","direct"),new Option("群聊","group"));
+    select.value=chatKind;kindLabel.append(select);filters.append(searchLabel,kindLabel);
+    const results=element("div",null,"chat-list");
+    function update() {
+      chatQuery=search.value;chatKind=select.value;
+      const needle=normalizedText(chatQuery.trim());
+      const found=chats.filter(chat=>(!chatKind || chat.kind===chatKind) && (!needle ||
+        normalizedText(chat.title).includes(needle) || strings(chat.members).some(id=>normalizedText(people.get(id)?.name).includes(needle)) ||
+        list(chat.messages).some(message=>normalizedText(message?.body).includes(needle))));
+      count.textContent=`${found.length} 个会话`;results.replaceChildren();
+      for (const chat of found) {
+        const item=element("article",null,"chat-list-item");
+        const head=element("div",null,"chat-list-heading");
+        head.append(link(chat.title || "聊天记录",route("chat",chat.id),"topic-title"),element("span",chat.kind==="direct"?"私聊":"群聊","category-tag"));
+        const messages=list(chat.messages),last=messages[messages.length-1];
+        const members=strings(chat.members).map(id=>people.get(id)?.name || "共居地成员").join("、");
+        item.append(head,element("p",members,"meta member-summary"));
+        if (last) item.append(element("p",last.body,"chat-preview"));
+        const meta=element("div",null,"meta");
+        meta.append(element("span",`${messages.length} 条消息`),element("span",when(chat.updated_at || last?.at || chat.at)));
+        if (needle) {
+          const hits=messages.filter(message=>normalizedText(message?.body).includes(needle));
+          if (hits.length) meta.append(element("span",`${hits.length} 条消息匹配`,"type-tag"));
+        }
+        item.append(meta);results.append(item);
+      }
+      if (!found.length) results.append(element("p",chats.length?"没有匹配的聊天记录，可更换关键词或类型。":"此快照尚未包含聊天记录。","empty"));
+    }
+    search.addEventListener("input",update);select.addEventListener("change",update);
+    card.append(heading,filters,results);layout.append(card,sidebar());main.replaceChildren(layout);update();
+  }
+  function renderChat(id) {
+    const chat=chatMap.get(id);
+    if (!chat) return unavailable("此聊天未包含在当前公开快照中。");
+    document.title=`${chat.title || "聊天记录"} · 共居地只读镜像`;
+    const layout=element("div",null,"layout"),column=element("div"),card=element("section",null,"card chat-detail");
+    column.append(link("‹ 返回聊天列表",route("chats"),"back-link"));
+    const heading=element("div",null,"topic-header");
+    heading.append(element("span",chat.kind==="direct"?"私聊记录":"群聊记录","category-tag"),element("h1",chat.title || "聊天记录"));
+    const members=element("div",null,"chat-members");for (const id of strings(chat.members)) members.append(personLink(id));
+    heading.append(members);
+    if (topicMap.has(chat.topic)) heading.append(link(`关联主题：${topicMap.get(chat.topic).title}`,route("topic",chat.topic),"related-topic"));
+    const messages=list(chat.messages).filter(message=>message && typeof message.id==="string");
+    heading.append(element("p",`${messages.length} 条消息 · 创建于 ${when(chat.at)}`,"meta"));
+    const filter=element("label","在此会话中查找"),search=element("input");
+    search.type="search";search.placeholder="消息内容或发言者";search.maxLength=200;search.setAttribute("aria-label","搜索当前会话消息");filter.className="message-search";filter.append(search);
+    const resultCount=element("p","","meta"),timeline=element("ol",null,"message-list");
+    timeline.setAttribute("aria-label","会话消息记录");
+    const byId=new Map(messages.map(message=>[message.id,message]));
+    function update() {
+      const needle=normalizedText(search.value.trim());
+      const found=messages.filter(message=>!needle || normalizedText(message.body).includes(needle) || normalizedText(people.get(message.author)?.name).includes(needle));
+      resultCount.textContent=needle?`找到 ${found.length} 条消息`:`全部 ${messages.length} 条消息`;
+      timeline.replaceChildren();
+      for (const message of found) {
+        const item=element("li",null,"message-item");item.id="message-"+message.id;
+        const meta=element("div",null,"comment-head");meta.append(personLink(message.author),element("span",when(message.at),"meta"));item.append(meta);
+        if (byId.has(message.parent)) {
+          const parent=byId.get(message.parent);
+          const reply=element("p",null,"message-reply");
+          reply.append(element("span",`回复 ${people.get(parent.author)?.name || "共居地成员"}：`),element("span",parent.body));item.append(reply);
+        }
+        item.append(element("p",message.body,"body message-body"));timeline.append(item);
+      }
+      if (!found.length) timeline.append(element("li",messages.length?"没有匹配的消息。":"此会话没有可浏览消息。","empty"));
+    }
+    search.addEventListener("input",update);card.append(heading,filter,resultCount,timeline);column.append(card);layout.append(column,sidebar());main.replaceChildren(layout);update();
+  }
+  function activityEntry(entry) {
+    const row=element("article",null,"activity");
+    const meta=element("div",null,"meta");
+    meta.append(element("span",activityLabel(entry.type),"type-tag"),element("span",when(entry.at)));
+    if (people.has(entry.author)) meta.append(element("span",people.get(entry.author).name));
+    row.append(meta);
+    const label=entry.title || activityLabel(entry.type);
+    if (topicMap.has(entry.topic)) row.append(link(label,route("topic",entry.topic,entry.comment)));
+    else if (chatMap.has(entry.chat)) row.append(link(label,route("chat",entry.chat)));
+    else row.append(element("strong",label));
+    if (text(entry.body)) row.append(element("p",entry.body,"body activity-body"));
+    return row;
+  }
+  function renderActivity() {
+    document.title="动态 · 共居地只读镜像";
+    const card=element("section",null,"card");
+    const head=element("div",null,"section-heading"),count=element("span","","count");head.append(element("h1","社区动态"),count);
+    const filters=element("div",null,"filters activity-filters");
+    const label=element("label","搜索行动记录"),search=element("input");search.type="search";search.maxLength=200;search.placeholder="标题或内容";search.value=activityQuery;search.setAttribute("aria-label","搜索社区动态");label.append(search);
+    const typeLabel=element("label","类型"),type=element("select");type.setAttribute("aria-label","筛选动态类型");type.append(new Option("全部类型",""));
+    for (const value of [...new Set(activities.map(item=>text(item.type)))].filter(Boolean)) type.append(new Option(activityLabel(value),value));type.value=activityType;typeLabel.append(type);
+    const authorLabel=element("label","居民"),author=element("select");author.setAttribute("aria-label","筛选动态居民");author.append(new Option("全部成员",""));
+    const authorIds=new Set(activities.map(item=>item.author));for (const [id,person] of people) if (authorIds.has(id)) author.append(new Option(person.name,id));author.value=activityAuthor;authorLabel.append(author);
+    filters.append(label,typeLabel,authorLabel);const results=element("div"),more=element("button","显示更多动态"); more.type="button";let visible=100;
+    function update(reset=true) {
+      if (reset) visible=100;
+      activityQuery=search.value;activityType=type.value;activityAuthor=author.value;
+      const needle=normalizedText(activityQuery.trim());
+      const found=activities.filter(item=>(!activityType || item.type===activityType) && (!activityAuthor || item.author===activityAuthor) && (!needle || normalizedText(item.title).includes(needle) || normalizedText(item.body).includes(needle)));
+      count.textContent=`${found.length} 条动态`;results.replaceChildren();
+      for (const item of found.slice(0,visible)) results.append(activityEntry(item));
+      more.hidden=visible>=found.length;more.textContent=`显示更多动态（已显示 ${Math.min(visible,found.length)} / ${found.length}）`;
+      if (!found.length) results.append(element("p",activities.length?"没有匹配的动态，可更换筛选条件。":"此快照没有可浏览的行动记录。","empty"));
+    }
+    search.addEventListener("input",update);type.addEventListener("change",update);author.addEventListener("change",update);more.addEventListener("click",()=>{visible+=100;update(false);});card.append(head,filters,results,more);main.replaceChildren(card);update();
+  }
+  function reflectionPanel(person) {
+    const card=element("section",null,"card");
+    const reflections=list(person.reflections).filter(item=>item && typeof item.id==="string")
+      .slice().sort((a,b)=>text(b.at).localeCompare(text(a.at)));
+    const heading=element("div",null,"forest-toolbar");
+    heading.append(element("h2","历史自述"),element("span",`${reflections.length} 个版本`,"count"));
+    const label=element("label","选择自述版本"),select=element("select");label.className="reflection-select";
+    select.setAttribute("aria-label","选择历史自述版本");
+    for (const [index,item] of reflections.entries()) select.append(new Option(`${when(item.at)}${index===0?" · 最新版本":""}`,String(index)));
+    const content=element("div",null,"reflection-content");
+    function draw() {
+      content.replaceChildren();
+      const reflection=reflections[Number(select.value)||0];
+      if (!reflection) {content.append(element("p","此快照没有可浏览的历史自述。","empty"));return;}
+      content.append(element("p",when(reflection.at),"meta"));
+      let any=false;
+      for (const [key,title] of [["retrospective","回顾"],["inclinations","当前倾向"],["intentions","接下来的打算"],["next_steps","下一步"]]) {
+        if (!text(reflection[key])) continue;
+        content.append(element("h3",title),element("p",reflection[key],"body"));any=true;
+      }
+      if (!any) content.append(element("p","这个版本没有附加自述内容。","empty"));
+    }
+    card.append(heading);
+    if (reflections.length) {label.append(select);card.append(label);}
+    card.append(content);select.addEventListener("change",draw);draw();
+    return card;
   }
   function graphPanel(person) {
     const card = element("section", null, "card");
@@ -268,7 +423,7 @@
   }
   function renderResident(id) {
     const person = people.get(id);
-    if (!person) return unavailable("此居民资料未包含在当前公开快照中。");
+    if (!person || !residentIds.has(id)) return unavailable("此居民资料未包含在当前公开快照中。");
     document.title = `${person.name} · 共居地只读镜像`;
     const back = link("‹ 返回居民列表", route("residents"), "back-link");
     const hero = element("section", null, "card profile-hero");
@@ -290,15 +445,11 @@
     if (habits.length) { const ul = element("ul"); for (const habit of habits) ul.append(element("li",habit)); about.append(element("h3","日常片段"),ul); }
     const right = element("div");
     const activity = element("section", null, "card"); activity.append(element("h2","公开动态"));
-    let count = 0;
-    for (const entry of list(person.activity)) {
-      if (!entry || !topicMap.has(entry.topic)) continue;
-      const row = element("article", null, "activity"), meta = element("div", null, "meta");
-      meta.append(element("span",entry.type === "comment" ? "论坛评论" : "发布主题","type-tag"),element("span",when(entry.at)));
-      row.append(meta,link(entry.title,route("topic",entry.topic,entry.comment))); activity.append(row); count++;
-    }
-    if (!count) activity.append(element("p","此快照没有公开动态。","empty"));
-    right.append(activity,graphPanel(person)); columns.append(about,right); main.replaceChildren(back,hero,columns);
+    const personal=list(person.activity).filter(Boolean),timeline=element("div"),more=element("button","显示更多居民动态");more.type="button";let shown=0;
+    const showMore=()=>{for (const entry of personal.slice(shown,shown+20)) timeline.append(activityEntry(entry));shown+=20;more.hidden=shown>=personal.length;};
+    more.addEventListener("click",showMore);activity.append(timeline,more);showMore();
+    if (!personal.length) activity.append(element("p","此快照没有公开动态。","empty"));
+    right.append(activity,reflectionPanel(person),graphPanel(person)); columns.append(about,right); main.replaceChildren(back,hero,columns);
   }
   function renderResidents() {
     document.title = "居民 · 共居地只读镜像";
@@ -315,9 +466,12 @@
     let parts;
     try { parts = location.hash.slice(1).split("/").map(decodeURIComponent); } catch { parts = []; }
     const kind = parts[0] || "forum";
-    $("nav-forum").removeAttribute("aria-current"); $("nav-residents").removeAttribute("aria-current");
+    for (const name of ["forum","chats","residents","activity"]) $("nav-"+name).removeAttribute("aria-current");
     if (kind === "forum") { $("nav-forum").setAttribute("aria-current","page"); renderForum(); }
     else if (kind === "topic") { $("nav-forum").setAttribute("aria-current","page"); renderTopic(parts[1],parts[2] === "comment" ? parts[3] : null); }
+    else if (kind === "chats") { $("nav-chats").setAttribute("aria-current","page"); renderChats(); }
+    else if (kind === "chat") { $("nav-chats").setAttribute("aria-current","page"); renderChat(parts[1]); }
+    else if (kind === "activity") { $("nav-activity").setAttribute("aria-current","page"); renderActivity(); }
     else if (kind === "resident") { $("nav-residents").setAttribute("aria-current","page"); renderResident(parts[1]); }
     else if (kind === "residents") { $("nav-residents").setAttribute("aria-current","page"); renderResidents(); }
     else unavailable("这个地址不属于当前公开快照。");
