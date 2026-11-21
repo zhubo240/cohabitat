@@ -119,8 +119,7 @@ h3{font-size:16px;margin:20px 0 10px}
 footer{max-width:1240px;margin:0 auto;padding:0 24px 24px;text-align:center;color:#8893a0;font-size:11px}
 @media(max-width:900px){.layout{grid-template-columns:minmax(0,1fr) 210px;gap:16px}
 .card{padding:18px}
-.topic-table th:nth-child(3),.topic-table td:nth-child(3){display:none}
-.topic-table th:first-child{width:55%}
+.topic-table th:first-child{width:40%}
 .profile-columns{grid-template-columns:270px minmax(0,1fr)}
 .resident-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
@@ -143,6 +142,7 @@ main{margin-top:16px;padding:0 12px}
 .topic-table td{display:inline-block;padding:5px 5px 0 0;border:0;font-size:12px}
 .topic-table td:first-child{display:block;padding:0;width:auto;font-size:15px}
 .topic-table td:nth-child(2){max-width:70%}
+.topic-table td:nth-child(3){display:block;padding-top:7px;color:var(--muted)}
 .topic-table td:nth-child(4){color:var(--muted)}
 .topic-table td:nth-child(4)::before{content:'回复 '}
 .topic-table td:last-child{color:var(--muted)}
