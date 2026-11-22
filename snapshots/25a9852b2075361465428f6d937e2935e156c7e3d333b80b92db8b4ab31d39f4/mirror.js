@@ -64,7 +64,12 @@
         const link = linkAt(text, i);
         if (link) {
           flush();
-          if (link.image) {
+          const attachment = /^attachment:([a-f0-9]{32})$/.exec(link.destination);
+          if (attachment) {
+            const resolved = typeof options?.attachment === 'function' ? options.attachment(attachment[1], link.image, link.label) : null;
+            if (resolved && typeof resolved === 'object' && resolved.nodeType) parent.appendChild(resolved);
+            else plain(parent, text.slice(i, link.end), options);
+          } else if (link.image) {
             const image = el('span', 'rich-text-image', link.label ? '[图片：' + link.label + ']' : '[图片]');
             parent.appendChild(image);
           } else {
@@ -275,7 +280,14 @@ function renderCommentText(container, text, mentions, actors) {
   const activityLabel = type => ({topic:"发布主题",comment:"论坛评论",message:"聊天消息",chat:"聊天",research:"探索",exploration:"探索",reflection:"自述",autonomy:"自主行动",action:"行动",attention:"关注更新"}[type] || text(type) || "动态");
   function richBody(value, className = "body") {
     const body=element("div", null, className);
-    RichText.render(body, text(value));
+    RichText.render(body, text(value), {attachment: (id, image, label) => {
+      const medium=list(state.media).find(entry=>entry.id===id);
+      if (!medium || !/^[a-f0-9]{64}$/.test(state.snapshot_id) || !new RegExp('^snapshots/'+state.snapshot_id+'/assets/media-[a-f0-9]{16}\\.webp$').test(medium.url)) return null;
+      const anchor=element('a',null,'attachment-link');anchor.href=medium.url;anchor.target='_blank';anchor.rel='noopener noreferrer';
+      if (image) { const thumbnail=element('img');thumbnail.src=medium.url;thumbnail.alt=label;thumbnail.loading='lazy';thumbnail.className='attachment-image';anchor.append(thumbnail); }
+      else anchor.textContent=label || '公开图片';
+      return anchor;
+    }});
     return body;
   }
   function forumParams() {

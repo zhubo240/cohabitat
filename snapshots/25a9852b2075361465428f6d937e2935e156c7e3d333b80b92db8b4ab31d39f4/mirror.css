@@ -305,3 +305,4 @@ nav a{padding:10px 16px}
 .rich-text .rich-text-copy-buffer { position: fixed; left: -10000px; top: 0; width: 1px; height: 1px; opacity: 0; }
 @media (max-width: 600px) { .rich-text pre { padding: .65em; }.rich-text th, .rich-text td { padding: .4em .55em; }.rich-text blockquote { padding-left: .65em; } }
 
+ .rich-text .attachment-image { max-width:100%; width:auto; max-height:320px; object-fit:contain; border-radius:6px; }
